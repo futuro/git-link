@@ -500,18 +500,10 @@ return (FILENAME . REVISION) otherwise nil."
     (git-link--remote)))
 
 ;;;###autoload
-(defun git-link (remote start end)
-  "Create a URL representing the current buffer's location in its
-GitHub/Bitbucket/GitLab/... repository at the current line number
-or active region. The URL will be added to the kill ring. If
-`git-link-open-in-browser' is non-`nil' also call `browse-url'.
-
-With a prefix argument prompt for the remote's name.
-Defaults to \"origin\"."
-  (interactive (let* ((remote (git-link--select-remote))
-                      (region (when (or buffer-file-name (git-link--using-magit-blob-mode))
-                                (git-link--get-region))))
-                 (list remote (car region) (cadr region))))
+(defun git-link-url (remote &optional start end)
+  "Create a URL for current buffer's location at REMOTE.
+When given START and END, include the current line number or
+active region."
   (let (filename branch commit handler remote-info (remote-url (git-link--remote-url remote)))
     (if (null remote-url)
         (message "Remote `%s' not found" remote)
@@ -535,20 +527,33 @@ Defaults to \"origin\"."
                  (setq filename (car vc-revison)
                        commit   (cdr vc-revison)))
 
-               (git-link--new
-                (funcall handler
-                         (car remote-info)
-                         (cadr remote-info)
-                         filename
-                         (if (or (git-link--using-git-timemachine)
-                                 (git-link--using-magit-blob-mode)
-                                 vc-revison
-                                 git-link-use-commit)
-                             nil
-                           (url-hexify-string branch))
-                         commit
-                         start
-                         end))))))))
+               (funcall handler
+			(car remote-info)
+			(cadr remote-info)
+			filename
+			(if (or (git-link--using-git-timemachine)
+				(git-link--using-magit-blob-mode)
+				vc-revison
+				git-link-use-commit)
+			    nil
+			  (url-hexify-string branch))
+			commit
+			start
+			end)))))))
+
+(defun git-link (remote start end)
+  "Create a URL representing the current buffer's location in its
+GitHub/Bitbucket/GitLab/... repository at the current line number
+or active region. The URL will be added to the kill ring. If
+`git-link-open-in-browser' is non-`nil' also call `browse-url'.
+
+With a prefix argument prompt for the remote's name.
+Defaults to \"origin\"."
+  (interactive (let* ((remote (git-link--select-remote))
+                      (region (when (or buffer-file-name (git-link--using-magit-blob-mode))
+                                (git-link--get-region))))
+                 (list remote (car region) (cadr region))))
+  (git-link--new (git-link-url remote start end)))
 
 ;;;###autoload
 (defun git-link-commit (remote)
