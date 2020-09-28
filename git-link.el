@@ -1,8 +1,8 @@
 ;;; git-link.el --- Get the GitHub/Bitbucket/GitLab URL for a buffer location -*- lexical-binding: t -*-
 
-;; Copyright (C) 2013-2019 Skye Shaw and others
+;; Copyright (C) 2013-2020 Skye Shaw and others
 ;; Author: Skye Shaw <skye.shaw@gmail.com>
-;; Version: 0.7.6
+;; Version: 0.8.1 (unreleased)
 ;; Keywords: git, vc, github, bitbucket, gitlab, sourcehut, convenience
 ;; URL: http://github.com/sshaw/git-link
 ;; Package-Requires: ((emacs "24.3"))
@@ -35,6 +35,11 @@
 
 ;;; Change Log:
 
+;; 2020-07-21 - v0.8.0
+;; * Add `-' prefix argument to git-link to generate links without line numbers
+;; * Add git-link-use-single-line-number
+;; * Fix sourcehut's git-link handler
+;;
 ;; 2020-03-31 - v0.7.6
 ;; * Adapt to changes in Azure interface (Issue #65, thanks Roey Darwish Dror)
 ;;
@@ -167,13 +172,24 @@
   :type 'boolean
   :group 'git-link)
 
+(defcustom git-link-use-single-line-number t
+  "If t a link to a single line will always contain the line number.
+If nil line numbers will only be added when a selection contains
+more than 1 line.
+
+Note that `git-link' can exclude line numbers on a per invocation basis.
+See its docs."
+  :type 'boolean
+  :group 'git-link)
+
 (defcustom git-link-remote-alist
-  '(("git.sr.ht" git-link-sourcehut)
+  '(("git.sr.ht" git-link-github)
     ("github" git-link-github)
     ("bitbucket" git-link-bitbucket)
     ("gitorious" git-link-gitorious)
     ("gitlab" git-link-gitlab)
-    ("visualstudio\\|azure" git-link-azure))
+    ("visualstudio\\|azure" git-link-azure)
+    ("sourcegraph" git-link-sourcegraph))
   "Alist of host names and functions creating file links for those.
 Each element looks like (REGEXP FUNCTION) where REGEXP is used to
 match the remote's host name and FUNCTION is used to generate a link
@@ -190,7 +206,8 @@ As an example, \"gitlab\" will match with both \"gitlab.com\" and
     ("bitbucket" git-link-commit-bitbucket)
     ("gitorious" git-link-commit-gitorious)
     ("gitlab" git-link-commit-github)
-    ("visualstudio\\|azure" git-link-commit-azure))
+    ("visualstudio\\|azure" git-link-commit-azure)
+    ("sourcegraph" git-link-commit-sourcegraph))
   "Alist of host names and functions creating commit links for those.
 Each element looks like (REGEXP FUNCTION) where REGEXP is used to
 match the remote's host name and FUNCTION is used to generate a link
@@ -440,8 +457,8 @@ return (FILENAME . REVISION) otherwise nil."
 	  dirname
       filename
       (concat "G" (if branch "B" "C") (or branch commit))
-      start
-      (or end start)))
+      (or start "")
+      (or end start "")))
 
 (defun git-link-commit-github (hostname dirname commit)
   (format "https://%s/%s/commit/%s"
@@ -494,6 +511,27 @@ return (FILENAME . REVISION) otherwise nil."
 	  dirname
 	  commit))
 
+(defun git-link-sourcegraph (hostname dirname filename branch commit start end)
+  (let ((line-or-range (cond ((and start end) (format "#L%s-%s" start end))
+                             (start (format "#L%s" start))
+                             (t "")))
+        (branch-or-commit (or branch commit))
+        (dir-file-name (directory-file-name dirname)))
+    (format "https://%s/%s@%s/-/blob/%s%s"
+            hostname
+            dir-file-name
+            branch-or-commit
+            filename
+            line-or-range)))
+
+(defun git-link-commit-sourcegraph (hostname dirname commit)
+  (let ((dir-file-name (directory-file-name dirname)))
+    (format "https://%s/%s/-/commit/%s"
+            hostname
+            dir-file-name
+            commit)))
+
+
 (defun git-link--select-remote ()
   (if current-prefix-arg
       (git-link--read-remote)
@@ -544,15 +582,25 @@ active region."
 (defun git-link (remote start end)
   "Create a URL representing the current buffer's location in its
 GitHub/Bitbucket/GitLab/... repository at the current line number
-or active region. The URL will be added to the kill ring. If
-`git-link-open-in-browser' is non-`nil' also call `browse-url'.
+or active region. The URL will be added to the kill ring.  If
+`git-link-open-in-browser' is non-nil also call `browse-url'.
 
-With a prefix argument prompt for the remote's name.
+With a prefix argument of - generate a link without line number(s).
+Also see `git-link-use-single-line-number'.
+
+With any other prefix argument prompt for the remote's name.
 Defaults to \"origin\"."
-  (interactive (let* ((remote (git-link--select-remote))
-                      (region (when (or buffer-file-name (git-link--using-magit-blob-mode))
-                                (git-link--get-region))))
-                 (list remote (car region) (cadr region))))
+  (interactive
+   (if (equal '- current-prefix-arg)
+       (list (git-link--remote) nil nil)
+     (let* ((remote (git-link--select-remote))
+            (region (when (or buffer-file-name (git-link--using-magit-blob-mode))
+                      (git-link--get-region))))
+
+       (if (and (null git-link-use-single-line-number) (null (cadr region)))
+           (list remote nil nil)
+         (list remote (car region) (cadr region))))))
+
   (git-link--new (git-link-url remote start end)))
 
 ;;;###autoload
